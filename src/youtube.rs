@@ -1,148 +1,113 @@
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use std::env;
+use google_youtube3::{
+    YouTube,
+    api::{PlaylistItem, PlaylistItemSnippet, ResourceId},
+    hyper_rustls, hyper_util, yup_oauth2,
+};
 
-pub struct YouTubeClient {
-    client: Client,
-    api_key: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PlaylistInfo {
-    pub title: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct PlaylistItem {
+#[derive(Debug, Clone)]
+pub struct VideoInfo {
     pub video_id: String,
     pub title: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct PlaylistResponse {
-    items: Vec<PlaylistResponseItem>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PlaylistResponseItem {
-    snippet: PlaylistSnippet,
-}
-
-#[derive(Debug, Deserialize)]
-struct PlaylistSnippet {
-    title: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PlaylistItemsResponse {
-    items: Vec<PlaylistItemResponseItem>,
-    #[serde(rename = "nextPageToken")]
-    next_page_token: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PlaylistItemResponseItem {
-    snippet: PlaylistItemSnippet,
-}
-
-#[derive(Debug, Deserialize)]
-struct PlaylistItemSnippet {
-    title: String,
-    #[serde(rename = "resourceId")]
-    resource_id: ResourceId,
-}
-
-#[derive(Debug, Deserialize)]
-struct ResourceId {
-    #[serde(rename = "videoId")]
-    video_id: String,
-}
-
-#[derive(Debug, Serialize)]
-struct InsertPlaylistItemRequest {
-    snippet: InsertPlaylistItemSnippet,
-}
-
-#[derive(Debug, Serialize)]
-struct InsertPlaylistItemSnippet {
-    #[serde(rename = "playlistId")]
-    playlist_id: String,
-    #[serde(rename = "resourceId")]
-    resource_id: InsertResourceId,
-}
-
-#[derive(Debug, Serialize)]
-struct InsertResourceId {
-    kind: String,
-    #[serde(rename = "videoId")]
-    video_id: String,
+pub struct YouTubeClient {
+    hub: YouTube<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>,
 }
 
 impl YouTubeClient {
-    pub fn new(api_key_env: &str) -> Result<Self, Box<dyn std::error::Error>> {
-        let api_key = env::var(api_key_env)
-            .map_err(|_| format!("Environment variable {} not found", api_key_env))?;
+    pub async fn new(oauth_json_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        // Read OAuth2 credentials from the provided JSON file
+        let secret = yup_oauth2::read_application_secret(oauth_json_path).await?;
 
-        Ok(YouTubeClient {
-            client: Client::new(),
-            api_key,
-        })
-    }
-
-    pub async fn get_playlist_info(
-        &self,
-        playlist_id: &str,
-    ) -> Result<PlaylistInfo, Box<dyn std::error::Error>> {
-        let url = format!(
-            "https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&id={}&key={}",
-            playlist_id, self.api_key
+        // Create an authenticator
+        let auth = yup_oauth2::InstalledFlowAuthenticator::builder(
+            secret,
+            yup_oauth2::InstalledFlowReturnMethod::HTTPRedirect,
         );
 
-        let response: PlaylistResponse = self.client.get(&url).send().await?.json().await?;
+        // Create HTTPS connector
+        let connector = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()?
+            .https_or_http()
+            .enable_http1()
+            .build();
 
-        if let Some(item) = response.items.first() {
-            Ok(PlaylistInfo {
-                title: item.snippet.title.clone(),
-            })
-        } else {
-            Err("Playlist not found".into())
+        // Create the YouTube API hub
+        let hub = YouTube::new(
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build(connector),
+            auth.build().await?,
+        );
+
+        Ok(Self { hub })
+    }
+
+    pub async fn get_playlist_title(
+        &self,
+        playlist_id: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let result = self
+            .hub
+            .playlists()
+            .list(&vec!["snippet".to_string()])
+            .add_id(playlist_id)
+            .doit()
+            .await?;
+
+        if let Some(items) = result.1.items {
+            if let Some(playlist) = items.first() {
+                if let Some(snippet) = &playlist.snippet {
+                    return Ok(snippet.title.clone().unwrap_or_default());
+                }
+            }
         }
+
+        Err("Playlist not found".into())
     }
 
     pub async fn get_playlist_items(
         &self,
         playlist_id: &str,
-    ) -> Result<Vec<PlaylistItem>, Box<dyn std::error::Error>> {
-        let mut items = Vec::new();
-        let mut page_token = None;
+    ) -> Result<Vec<VideoInfo>, Box<dyn std::error::Error>> {
+        let mut videos = Vec::new();
+        let mut page_token: Option<String> = None;
 
         loop {
-            let mut url = format!(
-                "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId={}&maxResults=50&key={}",
-                playlist_id, self.api_key
-            );
+            let mut request = self
+                .hub
+                .playlist_items()
+                .list(&vec!["snippet".to_string(), "contentDetails".to_string()])
+                .playlist_id(playlist_id)
+                .max_results(50);
 
             if let Some(token) = &page_token {
-                url.push_str(&format!("&pageToken={}", token));
+                request = request.page_token(token);
             }
 
-            let response: PlaylistItemsResponse =
-                self.client.get(&url).send().await?.json().await?;
+            let result = request.doit().await?;
 
-            for item in response.items {
-                items.push(PlaylistItem {
-                    video_id: item.snippet.resource_id.video_id,
-                    title: item.snippet.title,
-                });
+            if let Some(items) = result.1.items {
+                for item in items {
+                    if let (Some(snippet), Some(content_details)) =
+                        (&item.snippet, &item.content_details)
+                    {
+                        if let Some(video_id) = &content_details.video_id {
+                            videos.push(VideoInfo {
+                                video_id: video_id.clone(),
+                                title: snippet.title.clone().unwrap_or_default(),
+                            });
+                        }
+                    }
+                }
             }
 
-            if response.next_page_token.is_none() {
+            page_token = result.1.next_page_token;
+            if page_token.is_none() {
                 break;
             }
-            page_token = response.next_page_token;
         }
 
-        Ok(items)
+        Ok(videos)
     }
 
     pub async fn add_video_to_playlist(
@@ -150,26 +115,25 @@ impl YouTubeClient {
         playlist_id: &str,
         video_id: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let url = format!(
-            "https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&key={}",
-            self.api_key
-        );
-
-        let request = InsertPlaylistItemRequest {
-            snippet: InsertPlaylistItemSnippet {
-                playlist_id: playlist_id.to_string(),
-                resource_id: InsertResourceId {
-                    kind: "youtube#video".to_string(),
-                    video_id: video_id.to_string(),
-                },
-            },
+        let playlist_item = PlaylistItem {
+            snippet: Some(PlaylistItemSnippet {
+                playlist_id: Some(playlist_id.to_string()),
+                resource_id: Some(ResourceId {
+                    kind: Some("youtube#video".to_string()),
+                    video_id: Some(video_id.to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
         };
 
-        let response = self.client.post(&url).json(&request).send().await?;
-
-        if !response.status().is_success() {
-            return Err(format!("Failed to add video to playlist: {}", response.status()).into());
-        }
+        self.hub
+            .playlist_items()
+            .insert(playlist_item)
+            .add_part("snippet")
+            .doit()
+            .await?;
 
         Ok(())
     }

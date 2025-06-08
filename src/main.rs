@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use cliclack::{confirm, intro, outro};
+use cliclack::{confirm, intro, note, outro};
 
 mod config;
 mod sync;
@@ -29,6 +29,10 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("Failed to install rustls crypto provider");
+
     let cli = Cli::parse();
 
     match cli.command {
@@ -58,18 +62,29 @@ async fn handle_config(args: config::ConfigArgs) -> Result<(), Box<dyn std::erro
         return Ok(());
     }
 
-    if !args.api_key.is_empty() && args.api_key != "PLAYSYNC_YOUTUBE_API_KEY" {
-        cfg.set_api_key(args.api_key.clone());
+    if !args.oauth2_json.is_none() {
+        cfg.set_oauth_path(args.oauth2_json.clone());
         cfg.write()?;
-        outro("✅ API key updated successfully")?;
-        return Ok(());
+        outro("✅ OAuth2 JSON path set successfully")?;
     }
 
     if !args.add.is_empty() {
-        let youtube_client = youtube::YouTubeClient::new(&cfg.api_key)?;
+        if cfg.oauth2_json.is_none() {
+            outro(
+                "❌ The path to the OAuth2 JSON file is not set. Please set it before adding playlists.",
+            )?;
+            return Err("OAuth2 JSON path is not set".into());
+        }
 
-        match youtube_client.get_playlist_info(&args.add).await {
-            Ok(playlist_info) => {
+        let oauth2_json = cfg
+            .oauth2_json
+            .as_ref()
+            .ok_or("OAuth2 JSON path is not set")?;
+
+        let youtube_client = youtube::YouTubeClient::new(oauth2_json).await?;
+
+        match youtube_client.get_playlist_title(&args.add).await {
+            Ok(playlist_title) => {
                 let sync_from = if cfg.playlists.len() > 0 {
                     config::ask_for_sync_items(args.add.clone())
                 } else {
@@ -78,7 +93,7 @@ async fn handle_config(args: config::ConfigArgs) -> Result<(), Box<dyn std::erro
 
                 let playlist = config::Playlist {
                     id: args.add.clone(),
-                    title: playlist_info.title,
+                    title: playlist_title,
                     sync_from: if sync_from.is_empty() {
                         None
                     } else {
@@ -104,26 +119,38 @@ async fn handle_config(args: config::ConfigArgs) -> Result<(), Box<dyn std::erro
     }
 
     if args.list {
-        outro("📜 Listing all playlists:")?;
+        if let Some(oauth2_json) = &cfg.oauth2_json {
+            note("OAuth2 JSON path", oauth2_json)?;
+        } else {
+            note("OAuth2 JSON path", "<not set>")?;
+        }
+
+        intro("📜 Listing all playlists:")?;
+
         for playlist in &cfg.playlists {
-            outro(&format!(" - {} (ID: {})", playlist.title, playlist.id))?;
+            let playlist_msg = format!("{} (ID: {})", playlist.title, playlist.id);
 
             if playlist.sync_from.is_some() {
-                outro("   Syncs from:")?;
+                let mut sync_sources_msg = String::new();
+
                 for sync_id in playlist.sync_from.as_ref().unwrap() {
                     if let Some(sync_playlist) = &cfg.playlists.iter().find(|p| p.id == *sync_id) {
-                        outro(&format!(
-                            "    - {} (ID: {})",
+                        sync_sources_msg.push_str(&format!(
+                            "{} (ID: {})\n",
                             sync_playlist.title, sync_playlist.id
-                        ))?;
+                        ));
                     } else {
-                        outro(&format!("    - Unknown Playlist ID: {}", sync_id))?;
+                        sync_sources_msg.push_str(&format!("Unknown Playlist ID: {}\n", sync_id));
                     }
                 }
+
+                note(playlist_msg, &sync_sources_msg)?;
             } else {
-                outro("   No sync sources")?;
+                note(playlist_msg, "No sync sources")?;
             }
         }
+
+        outro("✅ Configuration listing completed")?;
     }
 
     Ok(())
@@ -140,7 +167,20 @@ async fn handle_sync(
     })?;
 
     let cfg = config::Config::read()?;
-    let youtube_client = youtube::YouTubeClient::new(&cfg.api_key)?;
+
+    if cfg.oauth2_json.is_none() {
+        outro(
+            "❌ The path to the OAuth2 JSON file is not set. Please set it before adding playlists.",
+        )?;
+        return Err("OAuth2 JSON path is not set".into());
+    }
+
+    let oauth2_json = cfg
+        .oauth2_json
+        .as_ref()
+        .ok_or("OAuth2 JSON path is not set")?;
+
+    let youtube_client = youtube::YouTubeClient::new(oauth2_json).await?;
 
     let playlists_to_sync = if let Some(id) = playlist_id {
         cfg.playlists.into_iter().filter(|p| p.id == id).collect()

@@ -31,15 +31,21 @@ pub struct ConfigArgs {
     #[clap(long)]
     pub reset: bool,
 
-    /// Set the API key for the configuration
-    #[clap(short = 'k', long, default_value = "PLAYSYNC_YOUTUBE_API_KEY")]
-    pub api_key: String,
+    /// Path to the OAuth2 JSON file for YouTube API authentication
+    #[clap(
+        short = 'o',
+        long,
+        alias = "oauth2-json",
+        value_name = "OAUTH2_JSON_PATH"
+    )]
+    pub oauth2_json: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
-    /// Name of the environment variable holding the YouTube API key
-    pub api_key: String,
+    /// OAuth2 JSON file path for YouTube API authentication
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth2_json: Option<String>,
 
     /// List of playlists to sync
     pub playlists: Vec<Playlist>,
@@ -62,8 +68,8 @@ pub struct Playlist {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            api_key: "PLAYSYNC_YOUTUBE_API_KEY".to_string(),
             playlists: Vec::new(),
+            oauth2_json: None,
         }
     }
 }
@@ -83,9 +89,9 @@ impl Config {
         self
     }
 
-    /// Set the API key for the configuration
-    pub fn set_api_key(&mut self, api_key: String) {
-        self.api_key = api_key;
+    /// Set the OAuth2 JSON file path for the configuration
+    pub fn set_oauth_path(&mut self, oauth2_json: Option<String>) {
+        self.oauth2_json = oauth2_json;
     }
 
     /// Read the configuration from the file

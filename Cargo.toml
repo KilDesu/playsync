@@ -11,6 +11,7 @@ google-youtube3 = "6.0.0"
 hyper = "1.6.0"
 hyper-rustls = "0.27.7"
 reqwest = { version = "0.12.19", features = ["json"] }
+rustls = { version = "0.23.27", features = ["ring"] }
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 tokio = { version = "1.45.1", features = ["full"] }
