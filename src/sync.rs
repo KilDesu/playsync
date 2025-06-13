@@ -41,7 +41,6 @@ pub async fn sync_playlist(
     ));
 
     if videos_to_add.is_empty() {
-        log::info("No new videos to sync")?;
         return Ok(());
     }
 

@@ -5,6 +5,8 @@ mod config;
 mod sync;
 mod youtube;
 
+use youtube::YouTubeClient;
+
 #[derive(Parser, Debug)]
 struct Cli {
     /// The command to execute
@@ -35,18 +37,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse();
 
+    let mut youtube_client = None;
+
+    if matches!(cli.command, Commands::Sync { .. })
+        || matches!(
+            cli.command,
+            Commands::Config(config::ConfigArgs { add: _, .. })
+        )
+    {
+        // Ensure the OAuth2 JSON path is set before proceeding with sync or config reset
+        let cfg = config::Config::read().unwrap_or_default();
+        if cfg.oauth2_json.is_none() {
+            outro("❌ The path to the OAuth2 JSON file is not set. Please set it before syncing.")?;
+            return Err("OAuth2 JSON path is not set".into());
+        }
+
+        let oauth2_json = cfg
+            .oauth2_json
+            .as_ref()
+            .ok_or("OAuth2 JSON path is not set")?;
+
+        youtube_client = Some(YouTubeClient::new(oauth2_json).await?);
+    }
+
     match cli.command {
-        Commands::Config(args) => handle_config(args).await?,
+        Commands::Config(args) => handle_config(args, youtube_client).await?,
         Commands::Sync {
             playlist_id,
             dry_run,
-        } => handle_sync(playlist_id, dry_run).await?,
+        } => handle_sync(playlist_id, dry_run, youtube_client).await?,
     }
 
     Ok(())
 }
 
-async fn handle_config(args: config::ConfigArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_config(
+    args: config::ConfigArgs,
+    youtube_client: Option<YouTubeClient>,
+) -> Result<(), Box<dyn std::error::Error>> {
     intro("📝 Playlist Configuration")?;
 
     let mut cfg = config::Config::read().unwrap_or_default();
@@ -69,21 +97,12 @@ async fn handle_config(args: config::ConfigArgs) -> Result<(), Box<dyn std::erro
     }
 
     if !args.add.is_empty() {
-        if cfg.oauth2_json.is_none() {
-            outro(
-                "❌ The path to the OAuth2 JSON file is not set. Please set it before adding playlists.",
-            )?;
-            return Err("OAuth2 JSON path is not set".into());
-        }
+        let client = youtube_client.ok_or_else(|| {
+            let _ = outro("❌ YouTube client is not initialized.");
+            "YouTube client is not initialized"
+        })?;
 
-        let oauth2_json = cfg
-            .oauth2_json
-            .as_ref()
-            .ok_or("OAuth2 JSON path is not set")?;
-
-        let youtube_client = youtube::YouTubeClient::new(oauth2_json).await?;
-
-        match youtube_client.get_playlist_title(&args.add).await {
+        match client.get_playlist_title(&args.add).await {
             Ok(playlist_title) => {
                 let sync_from = if cfg.playlists.len() > 0 {
                     config::ask_for_sync_items(args.add.clone())
@@ -159,6 +178,7 @@ async fn handle_config(args: config::ConfigArgs) -> Result<(), Box<dyn std::erro
 async fn handle_sync(
     playlist_id: Option<String>,
     dry_run: bool,
+    youtube_client: Option<YouTubeClient>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     intro(if dry_run {
         "🔍 Playlist Sync (Dry Run)"
@@ -167,20 +187,6 @@ async fn handle_sync(
     })?;
 
     let cfg = config::Config::read()?;
-
-    if cfg.oauth2_json.is_none() {
-        outro(
-            "❌ The path to the OAuth2 JSON file is not set. Please set it before adding playlists.",
-        )?;
-        return Err("OAuth2 JSON path is not set".into());
-    }
-
-    let oauth2_json = cfg
-        .oauth2_json
-        .as_ref()
-        .ok_or("OAuth2 JSON path is not set")?;
-
-    let youtube_client = youtube::YouTubeClient::new(oauth2_json).await?;
 
     let playlists_to_sync = if let Some(id) = playlist_id {
         cfg.playlists.into_iter().filter(|p| p.id == id).collect()
@@ -193,9 +199,14 @@ async fn handle_sync(
         return Ok(());
     }
 
+    let client = youtube_client.ok_or_else(|| {
+        let _ = outro("❌ YouTube client is not initialized.");
+        "YouTube client is not initialized"
+    })?;
+
     for playlist in playlists_to_sync {
         if let Some(sync_from) = &playlist.sync_from {
-            sync::sync_playlist(&youtube_client, &playlist, sync_from, dry_run).await?;
+            sync::sync_playlist(&client, &playlist, sync_from, dry_run).await?;
         }
     }
 
