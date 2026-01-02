@@ -19,11 +19,30 @@ impl YouTubeClient {
         // Read OAuth2 credentials from the provided JSON file
         let secret = yup_oauth2::read_application_secret(oauth_json_path).await?;
 
-        // Create an authenticator
+        // Get the app data directory for token cache
+        let cache_dir = confy::get_configuration_file_path("playsync", None)?
+            .parent()
+            .ok_or("Failed to get config directory")?
+            .to_path_buf();
+
+        std::fs::create_dir_all(&cache_dir)?;
+        let token_cache_path = cache_dir.join("token_cache.json");
+
+        // Create an authenticator with token persistence and required scopes
         let auth = yup_oauth2::InstalledFlowAuthenticator::builder(
             secret,
             yup_oauth2::InstalledFlowReturnMethod::HTTPRedirect,
-        );
+        )
+        .persist_tokens_to_disk(token_cache_path)
+        .build()
+        .await?;
+
+        // Force authentication with all required scopes upfront
+        let scopes = &[
+            "https://www.googleapis.com/auth/youtube.readonly",
+            "https://www.googleapis.com/auth/youtube",
+        ];
+        let _ = auth.token(scopes).await?;
 
         // Create HTTPS connector
         let connector = hyper_rustls::HttpsConnectorBuilder::new()
@@ -36,7 +55,7 @@ impl YouTubeClient {
         let hub = YouTube::new(
             hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
                 .build(connector),
-            auth.build().await?,
+            auth,
         );
 
         Ok(Self { hub })
