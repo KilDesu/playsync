@@ -4,13 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Args, Debug)]
 pub struct ConfigArgs {
     /// Add a new playlist to the configuration
-    #[clap(
-        short = 'a',
-        long,
-        alias = "add-playlist",
-        value_name = "PLAYLIST_ID",
-        default_value = ""
-    )]
+    #[clap(short = 'a', long, alias = "add-playlist", value_name = "PLAYLIST_ID")]
     pub add: String,
 
     /// Remove a playlist from the configuration
@@ -18,8 +12,7 @@ pub struct ConfigArgs {
         short = 'r',
         long,
         alias = "remove-playlist",
-        value_name = "PLAYLIST_ID",
-        default_value = ""
+        value_name = "PLAYLIST_ID"
     )]
     pub remove: String,
 
