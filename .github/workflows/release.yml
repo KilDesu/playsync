@@ -136,3 +136,25 @@ jobs:
             dist/playsync.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew tap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Clone the tap repository
+          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/KilDesu/homebrew-playsync.git tap
+          cd tap
+
+          # Create Formula directory if it doesn't exist
+          mkdir -p Formula
+
+          # Copy the formula
+          cp ../dist/playsync.rb Formula/playsync.rb
+
+          # Commit and push
+          git add Formula/playsync.rb
+          git commit -m "Update playsync to ${GITHUB_REF_NAME}" || echo "No changes to commit"
+          git push origin main || git push origin master

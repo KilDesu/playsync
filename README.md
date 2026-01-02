@@ -30,7 +30,8 @@ A command-line tool for syncing YouTube playlists. PlaySync allows you to automa
 **macOS (Homebrew)**
 
 ```bash
-brew install --formula https://github.com/KilDesu/playsync/releases/latest/download/playsync.rb
+brew tap KilDesu/playsync
+brew install playsync
 ```
 
 **Windows (Scoop)**
