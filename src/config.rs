@@ -89,14 +89,14 @@ impl Config {
 
     /// Read the configuration from the file
     pub fn read() -> Result<Self, Box<dyn std::error::Error>> {
-        let cfg: Config = confy::load("playsync", None)?;
+        let cfg: Config = confy::load("playsync", Some("playsync"))?;
 
         Ok(cfg)
     }
 
     /// Write the configuration to the file
     pub fn write(&self) -> Result<(), Box<dyn std::error::Error>> {
-        confy::store("playsync", None, self)?;
+        confy::store("playsync", Some("playsync"), self)?;
 
         Ok(())
     }

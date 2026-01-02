@@ -20,7 +20,7 @@ impl YouTubeClient {
         let secret = yup_oauth2::read_application_secret(oauth_json_path).await?;
 
         // Get the app data directory for token cache
-        let cache_dir = confy::get_configuration_file_path("playsync", None)?
+        let cache_dir = confy::get_configuration_file_path("playsync", Some("playsync"))?
             .parent()
             .ok_or("Failed to get config directory")?
             .to_path_buf();
