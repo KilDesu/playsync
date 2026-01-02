@@ -138,14 +138,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Homebrew tap
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           # Clone the tap repository
-          git clone https://x-access-token:${GITHUB_TOKEN}@github.com/KilDesu/homebrew-playsync.git tap
+          git clone https://x-access-token:${{ secrets.TAP_GITHUB_TOKEN }}@github.com/KilDesu/homebrew-playsync.git tap
           cd tap
 
           # Create Formula directory if it doesn't exist
