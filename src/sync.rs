@@ -58,6 +58,7 @@ pub async fn sync_playlist(
         "Adding {} videos to playlist",
         videos_to_add.len()
     ));
+    sp.stop("");
 
     let mut added_count = 0;
     for video in videos_to_add {
@@ -75,6 +76,6 @@ pub async fn sync_playlist(
         }
     }
 
-    sp.stop(&format!("Successfully added {} videos", added_count));
+    log::success(&format!("Successfully added {} videos", added_count))?;
     Ok(())
 }
