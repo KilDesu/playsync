@@ -35,11 +35,14 @@ jobs:
         if: ${{ matrix.target == 'x86_64-unknown-linux-musl' && startsWith(matrix.os, 'ubuntu') }}
         run: |
           rustup target add x86_64-unknown-linux-musl
-          # The toolchain should already include musl support
+          # Install basic musl tools
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
         env:
+          # Skip the problematic compiler test for aws-lc-sys
           AWS_LC_SYS_SKIP_TEST_COMPILER: ${{ matrix.target == 'x86_64-unknown-linux-musl' && '1' || '' }}
 
       - name: Package
