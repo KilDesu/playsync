@@ -23,13 +23,36 @@ A command-line tool for syncing YouTube playlists. PlaySync allows you to automa
 
 ### Prerequisites
 
-- Rust 1.70 or later
 - YouTube API credentials (OAuth2 JSON file)
 
-### Building from Source
+### Install (recommended)
+
+**macOS (Homebrew)**
 
 ```bash
-git clone https://github.com/yourusername/playsync
+brew install --formula https://github.com/KilDesu/playsync/releases/latest/download/playsync.rb
+```
+
+**Windows (Scoop)**
+
+```powershell
+scoop install https://github.com/KilDesu/playsync/releases/latest/download/playsync.json
+```
+
+**Linux / manual download**
+
+```bash
+# pick the target that matches your platform
+curl -LO https://github.com/KilDesu/playsync/releases/latest/download/playsync-x86_64-unknown-linux-gnu.zip
+unzip playsync-x86_64-unknown-linux-gnu.zip
+chmod +x playsync
+sudo mv playsync /usr/local/bin/
+```
+
+### Building from source
+
+```bash
+git clone https://github.com/KilDesu/playsync
 cd playsync
 cargo build --release
 ```

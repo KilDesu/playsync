@@ -1,0 +1,129 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          bin=target/${{ matrix.target }}/release/playsync${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          out=playsync-${{ matrix.target }}.zip
+          sha=playsync-${{ matrix.target }}.sha256
+          zip -j "$out" "$bin"
+          shasum -a 256 "$out" > "$sha"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            playsync-${{ matrix.target }}.zip
+            playsync-${{ matrix.target }}.sha256
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Generate Homebrew formula and Scoop manifest
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          sha_macos_arm=$(cut -d' ' -f1 dist/playsync-aarch64-apple-darwin.sha256)
+          sha_macos_intel=$(cut -d' ' -f1 dist/playsync-x86_64-apple-darwin.sha256)
+          sha_windows=$(cut -d' ' -f1 dist/playsync-x86_64-pc-windows-msvc.sha256)
+
+          cat > dist/playsync.rb <<'RUBY'
+          class Playsync < Formula
+            desc "Command-line tool for syncing YouTube playlists"
+            homepage "https://github.com/KilDesu/playsync"
+            version "%VERSION%"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/KilDesu/playsync/releases/download/v%VERSION%/playsync-aarch64-apple-darwin.zip"
+                sha256 "%SHA_ARM%"
+              end
+
+              on_intel do
+                url "https://github.com/KilDesu/playsync/releases/download/v%VERSION%/playsync-x86_64-apple-darwin.zip"
+                sha256 "%SHA_INTEL%"
+              end
+            end
+
+            def install
+              bin.install "playsync"
+            end
+
+            test do
+              system "#{bin}/playsync", "--help"
+            end
+          end
+          RUBY
+
+          sed -i "s/%VERSION%/${version}/g" dist/playsync.rb
+          sed -i "s/%SHA_ARM%/${sha_macos_arm}/" dist/playsync.rb
+          sed -i "s/%SHA_INTEL%/${sha_macos_intel}/" dist/playsync.rb
+
+          cat > dist/playsync.json <<JSON
+          {
+            "version": "${version}",
+            "description": "Command-line tool for syncing YouTube playlists",
+            "homepage": "https://github.com/KilDesu/playsync",
+            "license": "MIT",
+            "architecture": {
+              "64bit": {
+                "url": "https://github.com/KilDesu/playsync/releases/download/v${version}/playsync-x86_64-pc-windows-msvc.zip",
+                "hash": "${sha_windows}",
+                "bin": "playsync.exe"
+              }
+            }
+          }
+          JSON
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/playsync-*.zip
+            dist/playsync-*.sha256
+            dist/playsync.rb
+            dist/playsync.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
