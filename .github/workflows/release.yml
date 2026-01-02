@@ -14,8 +14,6 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
           - os: macos-latest
             target: x86_64-apple-darwin
           - os: macos-latest
@@ -30,14 +28,6 @@ jobs:
           toolchain: stable
           target: ${{ matrix.target }}
           override: true
-
-      - name: Setup musl target
-        if: ${{ matrix.target == 'x86_64-unknown-linux-musl' && startsWith(matrix.os, 'ubuntu') }}
-        run: |
-          rustup target add x86_64-unknown-linux-musl
-          # Install basic musl tools
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
