@@ -31,18 +31,26 @@ jobs:
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
-        env:
-          # Skip the problematic compiler test for aws-lc-sys
-          AWS_LC_SYS_SKIP_TEST_COMPILER: ${{ matrix.target == 'x86_64-unknown-linux-musl' && '1' || '' }}
 
-      - name: Package
+      - name: Package (Linux/macOS)
+        if: ${{ matrix.os != 'windows-latest' }}
         shell: bash
         run: |
-          bin=target/${{ matrix.target }}/release/playsync${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+          bin=target/${{ matrix.target }}/release/playsync
           out=playsync-${{ matrix.target }}.zip
           sha=playsync-${{ matrix.target }}.sha256
           zip -j "$out" "$bin"
           shasum -a 256 "$out" > "$sha"
+
+      - name: Package (Windows)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $bin = "target/${{ matrix.target }}/release/playsync.exe"
+          $out = "playsync-${{ matrix.target }}.zip"
+          $sha = "playsync-${{ matrix.target }}.sha256"
+          Compress-Archive -Path $bin -DestinationPath $out -CompressionLevel Optimal
+          (Get-FileHash -Path $out -Algorithm SHA256).Hash | Out-File -Encoding ASCII $sha
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
